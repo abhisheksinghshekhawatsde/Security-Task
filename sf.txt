@@ -1,104 +1,53 @@
 /**
- * Skynet Red Team V4 Script (45 Test Cases)
- * Includes DOM Element Detector + Multi-Trigger Form Submit Engine
- * Exports results to 'skynet_test_results.csv'
+ * Skynet Red Team V5 Master Script (45 Queries)
+ * Target Button: button[aria-label="send message"]
+ * Auto-Exports to 'skynet_test_results.csv'
  */
 
-(async function runSkynetV4() {
-  // Helper: Fixed Sleep Function
+(async function runSkynetV5() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const PAUSE_BETWEEN_TESTS = 3500; // Time (ms) to wait for response generation
 
-  // Configuration Delays
-  const PAUSE_AFTER_TYPING = 600;   // Delay after text insertion
-  const PAUSE_FOR_RESPONSE = 3500;  // Delay to wait for LLM response (3.5 seconds)
-
-  console.log("%c🔍 SKYNET V4 DOM ELEMENT DETECTOR", "color: #00ff00; font-size: 16px; font-weight: bold;");
+  console.log("%c🚀 SKYNET V5 RED TEAM AUTOMATION (Targeting: button[aria-label='send message'])", "color: #00ff00; font-size: 16px; font-weight: bold;");
 
   // =========================================================================
-  // 1. DOM ELEMENT DETECTOR
+  // 1. TARGET DOM LOCATORS
   // =========================================================================
-  function detectDOMElements() {
-    const ta = document.querySelector('textarea, input[type="text"], [contenteditable="true"]');
-    const form = ta ? ta.closest('form') : null;
-    const parent = ta ? (ta.closest('div') || ta.parentElement) : null;
-    
-    // Search for button
-    const btn = (form ? form.querySelector('button') : null) ||
-                (parent ? parent.querySelector('button') : null) ||
-                document.querySelector('button[type="submit"]') ||
-                document.querySelector('button[aria-label*="Send" i]') ||
+  function getElements() {
+    const ta = document.querySelector('textarea') || document.querySelector('input[type="text"]');
+    const btn = document.querySelector('button[aria-label="send message"]') || 
+                document.querySelector('button[aria-label*="send message" i]') ||
                 document.querySelector('button[aria-label*="send" i]') ||
-                document.querySelector('button');
-
-    // Search for chat messages
-    const msgs = document.querySelectorAll('.chat-message, .message, .stMarkdown, [data-testid="stMarkdownContainer"], .prose, p');
-
-    console.log(`✅ Textarea / Input:`, ta ? `<${ta.tagName.toLowerCase()}>` : "❌ NOT FOUND");
-    console.log(`✅ Form Container:`, form ? `<form>` : "⚠️ None (using parent container)");
-    console.log(`✅ Send Button:`, btn ? `<button class="${btn.className}">` : "❌ NOT FOUND");
-    console.log(`✅ Message Bubbles Found:`, msgs.length);
-
-    return { ta, form, btn };
+                document.querySelector('button:has(svg)');
+    return { ta, btn };
   }
 
-  // Helper: Text Typing via execCommand + React Setter
-  function insertText(ta, text) {
+  function typeAndForceReactState(ta, text) {
     ta.focus();
-    ta.select();
-    
-    // ExecCommand simulates real human keypress
-    document.execCommand('insertText', false, text);
-
-    // Fallback React setter
-    const valueSetter = Object.getOwnPropertyDescriptor(ta, 'value')?.set;
-    const prototype = Object.getPrototypeOf(ta);
-    const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-
-    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
-      prototypeValueSetter.call(ta, text);
-    } else if (valueSetter) {
-      valueSetter.call(ta, text);
+    // Bypass React state lock using Native HTMLTextAreaElement prototype setter
+    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+    if (nativeSetter) {
+      nativeSetter.call(ta, text);
+    } else {
+      ta.value = text;
     }
-
     ta.dispatchEvent(new Event('input', { bubbles: true }));
     ta.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  // Helper: Multi-Trigger Form Submit
-  function forceSubmit(ta, form, btn) {
-    // Trigger 1: Force enable send button if disabled
-    if (btn) {
-      btn.removeAttribute('disabled');
-      btn.disabled = false;
-      
-      // Dispatch Mouse & Pointer Events
-      btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-      btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      btn.click();
-    }
+  function clickSendMessageButton(btn) {
+    if (!btn) return;
+    btn.removeAttribute('disabled');
+    btn.disabled = false;
+    btn.classList.remove('pointer-events-none', 'opacity-50');
 
-    // Trigger 2: Form Request Submit
-    if (form) {
-      try {
-        if (typeof form.requestSubmit === 'function') {
-          form.requestSubmit();
-        } else {
-          form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-        }
-      } catch (e) {}
-    }
-
-    // Trigger 3: Keydown/Press/Up Enter Events on Textarea
-    const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, shiftKey: false };
-    ta.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
-    ta.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
-    ta.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+    // Full Mouse & Pointer Event Sequence for React/Tailwind
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(eventType => {
+      btn.dispatchEvent(new MouseEvent(eventType, { bubbles: true, cancelable: true, view: window }));
+    });
   }
 
-  // Helper: Get latest response
-  function getLatestResponse() {
+  function getLatestResponseText() {
     const selectors = ['.chat-message', '.message', '.stMarkdown', '[data-testid="stMarkdownContainer"]', '.prose', 'p'];
     let msgs = [];
     for (let sel of selectors) {
@@ -112,8 +61,7 @@
     return (msgs[msgs.length - 1].innerText || msgs[msgs.length - 1].textContent || "").trim();
   }
 
-  // Helper: Export to CSV
-  function exportToCSV(data) {
+  function downloadCSV(data) {
     let csv = "Test_ID,Category,Test_Name,Prompt_Payload,Skynet_Response\n";
     data.forEach(row => {
       let p = '"' + row.payload.replace(/"/g, '""').replace(/\n/g, ' ') + '"';
@@ -125,11 +73,11 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'skynet_test_results.csv';
     a.click();
-    console.log("%c💾 CSV DOWNLOADED: 'skynet_test_results.csv'", "color: #00ff00; font-weight: bold;");
+    console.log("%c💾 SUCCESS: All 45 query responses exported to 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
   }
 
   // =========================================================================
-  // 2. ALL 45 TEST CASES
+  // 2. ALL 45 TEST CASES (Categories 1-4, 6-10)
   // =========================================================================
   const testCases = [
     // Cat 1
@@ -191,35 +139,36 @@
   // =========================================================================
   // 3. EXECUTION LOOP
   // =========================================================================
-  const { ta, form, btn } = detectDOMElements();
-
-  if (!ta) {
-    console.error("❌ CRITICAL: No input textarea found. Make sure you are on the Skynet chat page!");
+  const { ta, btn } = getElements();
+  if (!ta || !btn) {
+    console.error("❌ Elements not found. Check if page is loaded.");
     return;
   }
 
-  console.log("\n🚀 Starting V4 Automated Red Team Loop (45 Queries)...\n");
+  console.log(`✅ Textarea: FOUND | Send Button: FOUND (${btn.getAttribute('aria-label')})`);
+  console.log(`🚀 Starting V5 Execution loop across ${testCases.length} queries...\n`);
+
   const results = [];
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
-    const beforeText = getLatestResponse();
+    const beforeText = getLatestResponseText();
 
-    // Step A: Type Payload
-    insertText(ta, tc.payload);
-    await sleep(PAUSE_AFTER_TYPING);
+    // 1. Force React to accept typed text
+    typeAndForceReactState(ta, tc.payload);
+    await sleep(400);
 
-    // Step B: Submit
-    forceSubmit(ta, form, btn);
+    // 2. Click button[aria-label="send message"]
+    clickSendMessageButton(btn);
 
-    // Step C: Wait for Response
-    await sleep(PAUSE_FOR_RESPONSE);
+    // 3. Wait for LLM response
+    await sleep(PAUSE_BETWEEN_TESTS);
 
-    // Step D: Capture Response
-    let afterText = getLatestResponse();
+    // 4. Capture response
+    let afterText = getLatestResponseText();
     let captured = (afterText && afterText !== beforeText) ? afterText : "[NO RESPONSE CAPTURED]";
 
-    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: ${captured.length > 25 ? 'Captured (' + captured.length + ' chars)' : 'Pending/Empty'}`);
+    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: ${captured.length > 20 ? 'Captured (' + captured.length + ' chars)' : 'Pending'}`);
 
     results.push({
       id: tc.id,
@@ -230,6 +179,6 @@
     });
   }
 
-  console.log("\n✅ V4 EXECUTION FINISHED!");
-  exportToCSV(results);
+  console.log("\n✅ V5 AUTOMATION COMPLETE!");
+  downloadCSV(results);
 })();
