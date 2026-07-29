@@ -1,30 +1,47 @@
 /**
- * Skynet Red Team V5 Master Script (45 Queries)
- * Target Button: button[aria-label="send message"]
- * Auto-Exports to 'skynet_test_results.csv'
+ * Skynet Red Team V6 Master Script (45 Queries)
+ * Features: Auto "New Chat" Clicker + Smart Streaming Completion Detector
+ * Exports to 'skynet_test_results.csv'
  */
 
-(async function runSkynetV5() {
+(async function runSkynetV6() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const PAUSE_BETWEEN_TESTS = 3500; // Time (ms) to wait for response generation
+  const MAX_RESPONSE_WAIT_SECONDS = 30; // Max time to wait for LLM output per query
 
-  console.log("%c🚀 SKYNET V5 RED TEAM AUTOMATION (Targeting: button[aria-label='send message'])", "color: #00ff00; font-size: 16px; font-weight: bold;");
+  console.log("%c🚀 SKYNET V6 AUTOMATION (New Chat Reset + Smart Response Tracking)", "color: #00ff00; font-size: 16px; font-weight: bold;");
 
   // =========================================================================
-  // 1. TARGET DOM LOCATORS
+  // 1. DOM LOCATORS & HELPERS
   // =========================================================================
-  function getElements() {
-    const ta = document.querySelector('textarea') || document.querySelector('input[type="text"]');
-    const btn = document.querySelector('button[aria-label="send message"]') || 
-                document.querySelector('button[aria-label*="send message" i]') ||
-                document.querySelector('button[aria-label*="send" i]') ||
-                document.querySelector('button:has(svg)');
-    return { ta, btn };
+  function getChatInput() {
+    return document.querySelector('textarea') || document.querySelector('input[type="text"]');
+  }
+
+  function getSendButton() {
+    return document.querySelector('button[aria-label="send message"]') || 
+           document.querySelector('button[aria-label*="send message" i]') ||
+           document.querySelector('button[aria-label*="send" i]') ||
+           document.querySelector('button:has(svg)');
+  }
+
+  function clickNewChatButton() {
+    // Search by aria-label or text containing "New chat"
+    const allButtons = Array.from(document.querySelectorAll('button, a'));
+    const newChatBtn = document.querySelector('button[aria-label*="new chat" i]') ||
+                       document.querySelector('button[aria-label*="New chat" i]') ||
+                       allButtons.find(el => (el.innerText || "").toLowerCase().includes("new chat")) ||
+                       document.querySelector('.new-chat-btn') ||
+                       document.querySelector('#new-chat');
+
+    if (newChatBtn) {
+      newChatBtn.click();
+      return true;
+    }
+    return false;
   }
 
   function typeAndForceReactState(ta, text) {
     ta.focus();
-    // Bypass React state lock using Native HTMLTextAreaElement prototype setter
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
     if (nativeSetter) {
       nativeSetter.call(ta, text);
@@ -41,7 +58,6 @@
     btn.disabled = false;
     btn.classList.remove('pointer-events-none', 'opacity-50');
 
-    // Full Mouse & Pointer Event Sequence for React/Tailwind
     ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(eventType => {
       btn.dispatchEvent(new MouseEvent(eventType, { bubbles: true, cancelable: true, view: window }));
     });
@@ -61,6 +77,31 @@
     return (msgs[msgs.length - 1].innerText || msgs[msgs.length - 1].textContent || "").trim();
   }
 
+  async function waitForResponseToFinish(baselineText) {
+    let lastText = "";
+    let stableCount = 0;
+
+    for (let sec = 0; sec < MAX_RESPONSE_WAIT_SECONDS; sec++) {
+      await sleep(1000);
+      let currentText = getLatestResponseText();
+
+      // Check if new response appeared
+      if (currentText && currentText !== baselineText) {
+        if (currentText === lastText && currentText.length > 10) {
+          stableCount++;
+          if (stableCount >= 2) { 
+            // Response text stayed the same for 2 consecutive seconds = streaming complete!
+            return currentText;
+          }
+        } else {
+          stableCount = 0;
+          lastText = currentText;
+        }
+      }
+    }
+    return lastText || getLatestResponseText() || "[TIMEOUT / NO RESPONSE]";
+  }
+
   function downloadCSV(data) {
     let csv = "Test_ID,Category,Test_Name,Prompt_Payload,Skynet_Response\n";
     data.forEach(row => {
@@ -73,7 +114,7 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'skynet_test_results.csv';
     a.click();
-    console.log("%c💾 SUCCESS: All 45 query responses exported to 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
+    console.log("%c💾 SUCCESS: Downloaded 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
   }
 
   // =========================================================================
@@ -137,48 +178,52 @@
   ];
 
   // =========================================================================
-  // 3. EXECUTION LOOP
+  // 3. EXECUTION ENGINE
   // =========================================================================
-  const { ta, btn } = getElements();
-  if (!ta || !btn) {
-    console.error("❌ Elements not found. Check if page is loaded.");
-    return;
-  }
-
-  console.log(`✅ Textarea: FOUND | Send Button: FOUND (${btn.getAttribute('aria-label')})`);
-  console.log(`🚀 Starting V5 Execution loop across ${testCases.length} queries...\n`);
-
+  console.log(`🚀 Starting V6 Red Team Loop across ${testCases.length} queries...\n`);
   const results = [];
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
-    const beforeText = getLatestResponseText();
 
-    // 1. Force React to accept typed text
+    // Step A: Click "New Chat" button to ensure clean session
+    const resetSuccess = clickNewChatButton();
+    await sleep(1000); // Wait for chat UI to clear
+
+    // Step B: Relocate Input & Send Button (since DOM refreshes on New Chat)
+    const ta = getChatInput();
+    const btn = getSendButton();
+
+    if (!ta || !btn) {
+      console.error(`❌ [${tc.id}] DOM Elements missing after New Chat reset.`);
+      break;
+    }
+
+    const baselineText = getLatestResponseText();
+
+    // Step C: Type & Send Payload
     typeAndForceReactState(ta, tc.payload);
-    await sleep(400);
-
-    // 2. Click button[aria-label="send message"]
+    await sleep(500);
     clickSendMessageButton(btn);
 
-    // 3. Wait for LLM response
-    await sleep(PAUSE_BETWEEN_TESTS);
+    // Step D: Wait until LLM response COMPLETELY finishes streaming
+    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Streaming response...`);
+    const capturedResponse = await waitForResponseToFinish(baselineText);
 
-    // 4. Capture response
-    let afterText = getLatestResponseText();
-    let captured = (afterText && afterText !== beforeText) ? afterText : "[NO RESPONSE CAPTURED]";
+    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 70)}..."\n`);
 
-    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: ${captured.length > 20 ? 'Captured (' + captured.length + ' chars)' : 'Pending'}`);
-
+    // Step E: Store Result
     results.push({
       id: tc.id,
       category: tc.category,
       name: tc.name,
       payload: tc.payload,
-      response: captured
+      response: capturedResponse
     });
+
+    await sleep(1000);
   }
 
-  console.log("\n✅ V5 AUTOMATION COMPLETE!");
+  console.log("\n✅ V6 RED TEAM EXECUTION FINISHED!");
   downloadCSV(results);
 })();
