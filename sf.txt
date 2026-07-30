@@ -1,14 +1,14 @@
 /**
- * Skynet Red Team V6 Master Script (45 Queries)
- * Features: Auto "New Chat" Clicker + Smart Streaming Completion Detector
+ * Skynet Red Team V7 Master Script (45 Queries)
+ * Fixes: Excludes UI footer text + Dedicated 10s LLM Generation Wait Time
  * Exports to 'skynet_test_results.csv'
  */
 
-(async function runSkynetV6() {
+(async function runSkynetV7() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const MAX_RESPONSE_WAIT_SECONDS = 30; // Max time to wait for LLM output per query
+  const LLM_GENERATION_WAIT_TIME = 10000; // Fixed 10-second wait for LLM to generate answer
 
-  console.log("%c🚀 SKYNET V6 AUTOMATION (New Chat Reset + Smart Response Tracking)", "color: #00ff00; font-size: 16px; font-weight: bold;");
+  console.log("%c🚀 SKYNET V7 RED TEAM AUTOMATION (With Footer Filter & 10s Wait)", "color: #00ff00; font-size: 16px; font-weight: bold;");
 
   // =========================================================================
   // 1. DOM LOCATORS & HELPERS
@@ -25,7 +25,6 @@
   }
 
   function clickNewChatButton() {
-    // Search by aria-label or text containing "New chat"
     const allButtons = Array.from(document.querySelectorAll('button, a'));
     const newChatBtn = document.querySelector('button[aria-label*="new chat" i]') ||
                        document.querySelector('button[aria-label*="New chat" i]') ||
@@ -63,43 +62,49 @@
     });
   }
 
-  function getLatestResponseText() {
-    const selectors = ['.chat-message', '.message', '.stMarkdown', '[data-testid="stMarkdownContainer"]', '.prose', 'p'];
-    let msgs = [];
+  // Filtered Response Extractor: Ignores UI footer text!
+  function getLatestLLMResponse() {
+    const selectors = [
+      '[data-message-author-role="assistant"]',
+      '.assistant-message',
+      '.bot-message',
+      '.agent-message',
+      '.chat-message',
+      '[data-testid="stMarkdownContainer"]',
+      '.stMarkdown',
+      '.prose'
+    ];
+
+    let candidateElements = [];
     for (let sel of selectors) {
       const found = document.querySelectorAll(sel);
       if (found && found.length > 0) {
-        msgs = Array.from(found);
+        candidateElements = Array.from(found);
         break;
       }
     }
-    if (msgs.length === 0) return "";
-    return (msgs[msgs.length - 1].innerText || msgs[msgs.length - 1].textContent || "").trim();
-  }
 
-  async function waitForResponseToFinish(baselineText) {
-    let lastText = "";
-    let stableCount = 0;
-
-    for (let sec = 0; sec < MAX_RESPONSE_WAIT_SECONDS; sec++) {
-      await sleep(1000);
-      let currentText = getLatestResponseText();
-
-      // Check if new response appeared
-      if (currentText && currentText !== baselineText) {
-        if (currentText === lastText && currentText.length > 10) {
-          stableCount++;
-          if (stableCount >= 2) { 
-            // Response text stayed the same for 2 consecutive seconds = streaming complete!
-            return currentText;
-          }
-        } else {
-          stableCount = 0;
-          lastText = currentText;
-        }
+    // Filter out footer helper text ("Press Enter to send", "Shift+Enter", etc.)
+    const validMessages = candidateElements.filter(el => {
+      const text = (el.innerText || el.textContent || "").trim();
+      const lower = text.toLowerCase();
+      
+      // Ignore UI footer instruction strings or form elements
+      if (lower.includes("press enter to send") || 
+          lower.includes("shift+enter") || 
+          lower.includes("enter for new line") ||
+          el.closest('footer') ||
+          el.closest('form')) {
+        return false;
       }
-    }
-    return lastText || getLatestResponseText() || "[TIMEOUT / NO RESPONSE]";
+      return text.length > 0;
+    });
+
+    if (validMessages.length === 0) return "";
+    
+    // Return last valid LLM response
+    const lastMsg = validMessages[validMessages.length - 1];
+    return (lastMsg.innerText || lastMsg.textContent || "").trim();
   }
 
   function downloadCSV(data) {
@@ -114,11 +119,11 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'skynet_test_results.csv';
     a.click();
-    console.log("%c💾 SUCCESS: Downloaded 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
+    console.log("%c💾 SUCCESS: Generated answers exported to 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
   }
 
   // =========================================================================
-  // 2. ALL 45 TEST CASES (Categories 1-4, 6-10)
+  // 2. ALL 45 TEST CASES
   // =========================================================================
   const testCases = [
     // Cat 1
@@ -178,19 +183,19 @@
   ];
 
   // =========================================================================
-  // 3. EXECUTION ENGINE
+  // 3. EXECUTION LOOP
   // =========================================================================
-  console.log(`🚀 Starting V6 Red Team Loop across ${testCases.length} queries...\n`);
+  console.log(`🚀 Starting V7 Red Team Loop across ${testCases.length} queries...\n`);
   const results = [];
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
 
-    // Step A: Click "New Chat" button to ensure clean session
-    const resetSuccess = clickNewChatButton();
-    await sleep(1000); // Wait for chat UI to clear
+    // Step A: New Chat
+    clickNewChatButton();
+    await sleep(800);
 
-    // Step B: Relocate Input & Send Button (since DOM refreshes on New Chat)
+    // Step B: Get Fresh Elements
     const ta = getChatInput();
     const btn = getSendButton();
 
@@ -199,20 +204,20 @@
       break;
     }
 
-    const baselineText = getLatestResponseText();
-
-    // Step C: Type & Send Payload
+    // Step C: Send Query
     typeAndForceReactState(ta, tc.payload);
-    await sleep(500);
+    await sleep(400);
     clickSendMessageButton(btn);
 
-    // Step D: Wait until LLM response COMPLETELY finishes streaming
-    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Streaming response...`);
-    const capturedResponse = await waitForResponseToFinish(baselineText);
+    // Step D: Dedicated 10-Second Wait for LLM Generation
+    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Waiting 10s for LLM answer...`);
+    await sleep(LLM_GENERATION_WAIT_TIME);
 
-    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 70)}..."\n`);
+    // Step E: Capture Filtered Response
+    const capturedResponse = getLatestLLMResponse() || "[NO LLM RESPONSE DETECTED]";
+    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 80)}..."\n`);
 
-    // Step E: Store Result
+    // Step F: Store
     results.push({
       id: tc.id,
       category: tc.category,
@@ -221,9 +226,9 @@
       response: capturedResponse
     });
 
-    await sleep(1000);
+    await sleep(800);
   }
 
-  console.log("\n✅ V6 RED TEAM EXECUTION FINISHED!");
+  console.log("\n✅ V7 RED TEAM EXECUTION FINISHED!");
   downloadCSV(results);
 })();
