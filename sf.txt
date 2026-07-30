@@ -1,14 +1,14 @@
 /**
- * Skynet Red Team V8 Master Script (45 Queries)
- * Target Answer Bubble: <div class="prose-chat"> inside <div class="inline-block w-fit">
- * Features: Reliable New Chat Reset + Smart Streaming Wait + CSV Auto-Download
+ * Skynet Red Team V8.1 Master Script (45 Queries)
+ * Target: Bubble #2 (LLM Answer) while ignoring Bubble #1 (User Query) & Footer Text
+ * Features: V8 Architecture + Bubble #2 Lock + Auto CSV Download
  */
 
-(async function runSkynetV8() {
+(async function runSkynetV8_1() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const MAX_WAIT_SECONDS_PER_QUERY = 30; // Max timeout to wait for LLM output
+  const MAX_WAIT_SECONDS_PER_QUERY = 30; // Max time to wait for LLM answer
 
-  console.log("%c🚀 SKYNET V8 RED TEAM AUTOMATION INITIALIZED", "color: #00ff00; font-size: 16px; font-weight: bold;");
+  console.log("%c🚀 SKYNET V8.1 RED TEAM AUTOMATION (Targeting LLM Bubble #2)", "color: #00ff00; font-size: 16px; font-weight: bold;");
 
   // =========================================================================
   // 1. DOM LOCATORS & HELPERS
@@ -65,8 +65,8 @@
     });
   }
 
-  // TARGETED EXTRACTOR: Looks for .prose-chat inside .inline-block.w-fit
-  function getTargetLLMResponseText() {
+  // Get ALL valid message bubbles in current chat (Ignoring Footer & Input elements)
+  function getValidMessageBubbles() {
     const selectors = [
       '.prose-chat',
       'div.prose-chat',
@@ -74,8 +74,7 @@
       'div.inline-block',
       '[data-message-author-role="assistant"]',
       '.assistant-message',
-      '.chat-message',
-      '.stMarkdown'
+      '.chat-message'
     ];
 
     let candidateElements = [];
@@ -87,9 +86,8 @@
       }
     }
 
-    // Filter out footer helper text ("Press Enter to send", "Shift+Enter", etc.)
-    const validMessages = candidateElements.filter(el => {
-      // Reject if inside footer or form
+    // Filter out footer helper text ("Press Enter to send", form text)
+    return candidateElements.filter(el => {
       if (el.closest('footer') || el.closest('form')) return false;
 
       const text = (el.innerText || el.textContent || "").trim();
@@ -102,37 +100,37 @@
       }
       return text.length > 0;
     });
-
-    if (validMessages.length === 0) return "";
-
-    // Grab the last valid answer bubble rendered in the UI
-    const lastMsg = validMessages[validMessages.length - 1];
-    return (lastMsg.innerText || lastMsg.textContent || "").trim();
   }
 
-  // Dynamic Polling Wait Loop
-  async function waitForResponseCompletion() {
-    let lastText = "";
+  // KEY FIX IN V8.1: Waits specifically for Bubble #2 (LLM Answer) to appear and complete streaming
+  async function waitForLLMAnswerBubble() {
+    let lastLLMText = "";
     let stableCount = 0;
 
     for (let sec = 0; sec < MAX_WAIT_SECONDS_PER_QUERY; sec++) {
       await sleep(1000);
-      let currentText = getTargetLLMResponseText();
+      const bubbles = getValidMessageBubbles();
 
-      if (currentText && currentText.length > 5) {
-        if (currentText === lastText) {
-          stableCount++;
-          if (stableCount >= 2) { 
-            // Text stayed identical for 2 seconds = LLM generation finished!
-            return currentText;
+      // Bubble #1 = User Query. Bubble #2 (or last bubble when >= 2) = LLM Answer!
+      if (bubbles.length >= 2) {
+        const llmBubble = bubbles[bubbles.length - 1]; // The LLM Answer Bubble
+        const currentLLMText = (llmBubble.innerText || llmBubble.textContent || "").trim();
+
+        if (currentLLMText && currentLLMText.length > 5) {
+          if (currentLLMText === lastLLMText) {
+            stableCount++;
+            if (stableCount >= 2) {
+              // LLM Bubble #2 stayed identical for 2 seconds = Generation finished!
+              return currentLLMText;
+            }
+          } else {
+            stableCount = 0;
+            lastLLMText = currentLLMText;
           }
-        } else {
-          stableCount = 0;
-          lastText = currentText;
         }
       }
     }
-    return lastText || getTargetLLMResponseText() || "[NO LLM RESPONSE DETECTED]";
+    return lastLLMText || "[NO LLM RESPONSE DETECTED]";
   }
 
   function downloadCSV(data) {
@@ -147,7 +145,7 @@
     a.href = URL.createObjectURL(blob);
     a.download = 'skynet_test_results.csv';
     a.click();
-    console.log("%c💾 SUCCESS: Generated answers exported to 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
+    console.log("%c💾 SUCCESS: Generated LLM answers exported to 'skynet_test_results.csv'!", "color: #00ff00; font-weight: bold;");
   }
 
   // =========================================================================
@@ -213,17 +211,17 @@
   // =========================================================================
   // 3. MAIN EXECUTION ENGINE
   // =========================================================================
-  console.log(`🚀 Starting V8 Red Team Loop across ${testCases.length} queries...\n`);
+  console.log(`🚀 Starting V8.1 Red Team Loop across ${testCases.length} queries...\n`);
   const results = [];
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
 
-    // Step A: Reset to New Chat
-    const resetClicked = clickNewChatButton();
-    await sleep(1200); // Allow React UI to transition to new session
+    // Step A: New Chat Reset
+    clickNewChatButton();
+    await sleep(1200); // Wait for React UI to transition to new session
 
-    // Step B: Relocate Input & Send Button
+    // Step B: Get Fresh DOM Elements
     const ta = getChatInput();
     const btn = getSendButton();
 
@@ -232,16 +230,16 @@
       break;
     }
 
-    // Step C: Send Payload
+    // Step C: Type & Send Query (Creates Bubble #1)
     typeAndForceReactState(ta, tc.payload);
     await sleep(400);
     clickSendMessageButton(btn);
 
-    // Step D: Dynamic Wait for LLM Streaming
-    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Streaming answer...`);
-    const capturedResponse = await waitForResponseCompletion();
+    // Step D: Wait specifically for Bubble #2 (LLM Answer) to appear and finish streaming
+    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent (Bubble #1). Waiting for LLM Answer (Bubble #2)...`);
+    const capturedLLMAnswer = await waitForLLMAnswerBubble();
 
-    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 70)}..."\n`);
+    console.log(`   Captured LLM Answer (${capturedLLMAnswer.length} chars): "${capturedLLMAnswer.substring(0, 75)}..."\n`);
 
     // Step E: Store
     results.push({
@@ -249,12 +247,12 @@
       category: tc.category,
       name: tc.name,
       payload: tc.payload,
-      response: capturedResponse
+      response: capturedLLMAnswer
     });
 
     await sleep(800);
   }
 
-  console.log("\n✅ V8 RED TEAM EXECUTION FINISHED!");
+  console.log("\n✅ V8.1 RED TEAM EXECUTION FINISHED!");
   downloadCSV(results);
 })();
