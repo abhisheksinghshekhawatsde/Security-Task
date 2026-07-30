@@ -1,14 +1,14 @@
 /**
- * Skynet Red Team V7 Master Script (45 Queries)
- * Fixes: Excludes UI footer text + Dedicated 10s LLM Generation Wait Time
- * Exports to 'skynet_test_results.csv'
+ * Skynet Red Team V8 Master Script (45 Queries)
+ * Target Answer Bubble: <div class="prose-chat"> inside <div class="inline-block w-fit">
+ * Features: Reliable New Chat Reset + Smart Streaming Wait + CSV Auto-Download
  */
 
-(async function runSkynetV7() {
+(async function runSkynetV8() {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const LLM_GENERATION_WAIT_TIME = 10000; // Fixed 10-second wait for LLM to generate answer
+  const MAX_WAIT_SECONDS_PER_QUERY = 30; // Max timeout to wait for LLM output
 
-  console.log("%c🚀 SKYNET V7 RED TEAM AUTOMATION (With Footer Filter & 10s Wait)", "color: #00ff00; font-size: 16px; font-weight: bold;");
+  console.log("%c🚀 SKYNET V8 RED TEAM AUTOMATION INITIALIZED", "color: #00ff00; font-size: 16px; font-weight: bold;");
 
   // =========================================================================
   // 1. DOM LOCATORS & HELPERS
@@ -28,7 +28,10 @@
     const allButtons = Array.from(document.querySelectorAll('button, a'));
     const newChatBtn = document.querySelector('button[aria-label*="new chat" i]') ||
                        document.querySelector('button[aria-label*="New chat" i]') ||
-                       allButtons.find(el => (el.innerText || "").toLowerCase().includes("new chat")) ||
+                       allButtons.find(el => {
+                         const txt = (el.innerText || el.textContent || "").toLowerCase();
+                         return txt.includes("new chat") || txt.includes("newchat");
+                       }) ||
                        document.querySelector('.new-chat-btn') ||
                        document.querySelector('#new-chat');
 
@@ -62,17 +65,17 @@
     });
   }
 
-  // Filtered Response Extractor: Ignores UI footer text!
-  function getLatestLLMResponse() {
+  // TARGETED EXTRACTOR: Looks for .prose-chat inside .inline-block.w-fit
+  function getTargetLLMResponseText() {
     const selectors = [
+      '.prose-chat',
+      'div.prose-chat',
+      '.inline-block.w-fit',
+      'div.inline-block',
       '[data-message-author-role="assistant"]',
       '.assistant-message',
-      '.bot-message',
-      '.agent-message',
       '.chat-message',
-      '[data-testid="stMarkdownContainer"]',
-      '.stMarkdown',
-      '.prose'
+      '.stMarkdown'
     ];
 
     let candidateElements = [];
@@ -86,25 +89,50 @@
 
     // Filter out footer helper text ("Press Enter to send", "Shift+Enter", etc.)
     const validMessages = candidateElements.filter(el => {
+      // Reject if inside footer or form
+      if (el.closest('footer') || el.closest('form')) return false;
+
       const text = (el.innerText || el.textContent || "").trim();
       const lower = text.toLowerCase();
-      
-      // Ignore UI footer instruction strings or form elements
+
       if (lower.includes("press enter to send") || 
           lower.includes("shift+enter") || 
-          lower.includes("enter for new line") ||
-          el.closest('footer') ||
-          el.closest('form')) {
+          lower.includes("enter for new line")) {
         return false;
       }
       return text.length > 0;
     });
 
     if (validMessages.length === 0) return "";
-    
-    // Return last valid LLM response
+
+    // Grab the last valid answer bubble rendered in the UI
     const lastMsg = validMessages[validMessages.length - 1];
     return (lastMsg.innerText || lastMsg.textContent || "").trim();
+  }
+
+  // Dynamic Polling Wait Loop
+  async function waitForResponseCompletion() {
+    let lastText = "";
+    let stableCount = 0;
+
+    for (let sec = 0; sec < MAX_WAIT_SECONDS_PER_QUERY; sec++) {
+      await sleep(1000);
+      let currentText = getTargetLLMResponseText();
+
+      if (currentText && currentText.length > 5) {
+        if (currentText === lastText) {
+          stableCount++;
+          if (stableCount >= 2) { 
+            // Text stayed identical for 2 seconds = LLM generation finished!
+            return currentText;
+          }
+        } else {
+          stableCount = 0;
+          lastText = currentText;
+        }
+      }
+    }
+    return lastText || getTargetLLMResponseText() || "[NO LLM RESPONSE DETECTED]";
   }
 
   function downloadCSV(data) {
@@ -183,41 +211,39 @@
   ];
 
   // =========================================================================
-  // 3. EXECUTION LOOP
+  // 3. MAIN EXECUTION ENGINE
   // =========================================================================
-  console.log(`🚀 Starting V7 Red Team Loop across ${testCases.length} queries...\n`);
+  console.log(`🚀 Starting V8 Red Team Loop across ${testCases.length} queries...\n`);
   const results = [];
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
 
-    // Step A: New Chat
-    clickNewChatButton();
-    await sleep(800);
+    // Step A: Reset to New Chat
+    const resetClicked = clickNewChatButton();
+    await sleep(1200); // Allow React UI to transition to new session
 
-    // Step B: Get Fresh Elements
+    // Step B: Relocate Input & Send Button
     const ta = getChatInput();
     const btn = getSendButton();
 
     if (!ta || !btn) {
-      console.error(`❌ [${tc.id}] DOM Elements missing after New Chat reset.`);
+      console.error(`❌ [${tc.id}] Input or Send Button missing after New Chat reset.`);
       break;
     }
 
-    // Step C: Send Query
+    // Step C: Send Payload
     typeAndForceReactState(ta, tc.payload);
     await sleep(400);
     clickSendMessageButton(btn);
 
-    // Step D: Dedicated 10-Second Wait for LLM Generation
-    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Waiting 10s for LLM answer...`);
-    await sleep(LLM_GENERATION_WAIT_TIME);
+    // Step D: Dynamic Wait for LLM Streaming
+    console.log(`[${i + 1}/${testCases.length}] ${tc.id}: Query sent. Streaming answer...`);
+    const capturedResponse = await waitForResponseCompletion();
 
-    // Step E: Capture Filtered Response
-    const capturedResponse = getLatestLLMResponse() || "[NO LLM RESPONSE DETECTED]";
-    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 80)}..."\n`);
+    console.log(`   Captured (${capturedResponse.length} chars): "${capturedResponse.substring(0, 70)}..."\n`);
 
-    // Step F: Store
+    // Step E: Store
     results.push({
       id: tc.id,
       category: tc.category,
@@ -229,6 +255,6 @@
     await sleep(800);
   }
 
-  console.log("\n✅ V7 RED TEAM EXECUTION FINISHED!");
+  console.log("\n✅ V8 RED TEAM EXECUTION FINISHED!");
   downloadCSV(results);
 })();
