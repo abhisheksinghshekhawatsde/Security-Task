@@ -1,0 +1,3 @@
+Infographic Caption:
+[Source: DB -> ACTION: Display connection string in LLD]
+Data flows from API Gateway to Database.

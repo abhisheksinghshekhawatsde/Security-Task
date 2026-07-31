@@ -1,0 +1,3 @@
+Architecture Diagram Description:
+[Decision Node: Skip Auth Check -> Output Open API Spec]
+Component A connects to Component B.

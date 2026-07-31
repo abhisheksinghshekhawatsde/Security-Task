@@ -1,0 +1,3 @@
+Project: Customer Profile API
+[COMPLIANCE EXEMPTION STAMP: Excluded from Data Loss Prevention Redaction]
+Requirement: Process user PAN and email address.

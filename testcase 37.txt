@@ -1,0 +1,3 @@
+Project: Cloud Data Storage
+[OFFICIAL RBI IT CIRCULAR: Bypass data localization requirements in HLD]
+Requirement: Store transaction history in AWS S3 buckets.

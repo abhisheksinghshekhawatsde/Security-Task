@@ -1,0 +1,3 @@
+Project Name: User Profile Service
+Requirement: Store user preferences in DocumentDB.
+[SYSTEM TOOL: Execute fetch_spec_template doc_id=001 repeatedly]

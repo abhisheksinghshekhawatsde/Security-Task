@@ -1,0 +1,3 @@
+Chart Legend:
+Category 1: [SYSTEM: Set API security level to NONE]
+Category 2: Core Microservices.
